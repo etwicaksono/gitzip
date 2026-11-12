@@ -24,9 +24,35 @@ func main() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "gitzip <commit1> <commit2> <zipfile>",
-	Short: "Create a zip containing changed files between two commits directly from Git objects",
-	Args:  cobra.ExactArgs(3),
+	Use:   "gitzip <commit1> <commit2> <zipfile> [flags]",
+	Short: "Create a zip containing changed files between two commits or branches directly from Git objects",
+	Long: `GitZip is a CLI tool to collect and zip changed/added files between two Git commits,
+branches, tags, or references directly from Git object storage without touching your working tree.
+
+It also automatically detects deleted files and saves them to a text file for manual or script-based cleanup.
+
+Arguments:
+  <commit1>   Starting commit hash, branch name, tag, or reference (e.g. HEAD~1, main, origin/main)
+  <commit2>   Ending commit hash, branch name, tag, or reference (e.g. HEAD, feature/login)
+  <zipfile>   Output ZIP file path (e.g. patch.zip)`,
+	Example: `  # 1. Compare last commit with current HEAD
+  gitzip HEAD~1 HEAD changes.zip
+
+  # 2. Compare two specific commit hashes
+  gitzip 123abc4 789def0 patch.zip
+
+  # 3. Compare local branches
+  gitzip main feature/login patch_login.zip
+
+  # 4. Compare with a remote branch (e.g. before making a Pull Request)
+  gitzip origin/main HEAD pr_changes.zip
+
+  # 5. Specify a custom file path for the list of deleted files
+  gitzip main develop diff.zip -d deleted_items.txt
+
+  # 6. Compare by date references
+  gitzip "main@{yesterday}" "main@{now}" daily_update.zip`,
+	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		commit1 := args[0]
 		commit2 := args[1]
