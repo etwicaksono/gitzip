@@ -1,1 +1,5 @@
 .idea
+*.exe
+gitzip
+*.zip
+*_deleted.txt
