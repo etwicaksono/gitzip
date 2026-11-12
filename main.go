@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -64,18 +65,32 @@ Arguments:
 			return fmt.Errorf("failed to get changed files: %w", err)
 		}
 
-		// 2. Get list of deleted files
+		// 2. Get list of deleted files (including old paths of renamed files)
 		deletedFiles, err := getDeletedFiles(commit1, commit2)
 		if err != nil {
 			return fmt.Errorf("failed to get deleted files: %w", err)
 		}
 
+		// 3. Get map of renamed files (oldPath -> newPath)
+		renamedMap, err := getRenamedFiles(commit1, commit2)
+		if err != nil {
+			return fmt.Errorf("failed to get renamed files: %w", err)
+		}
+
+		// Separate purely deleted files from renamed files
+		var pureDeleted []string
+		for _, f := range deletedFiles {
+			if _, isRenamed := renamedMap[f]; !isRenamed {
+				pureDeleted = append(pureDeleted, f)
+			}
+		}
+
 		if len(changedFiles) == 0 && len(deletedFiles) == 0 {
-			fmt.Println("No changed or deleted files between the specified commits.")
+			fmt.Println("No changed, deleted, or renamed files between the specified commits.")
 			return nil
 		}
 
-		// 3. Process changed files into ZIP from git objects
+		// 4. Process changed files into ZIP from git objects
 		if len(changedFiles) > 0 {
 			commitTime, err := getCommitTime(commit2)
 			if err != nil {
@@ -91,7 +106,32 @@ Arguments:
 			fmt.Println("No modified or added files to zip.")
 		}
 
-		// 4. Handle deleted files
+		// 5. Message for deleted files
+		if len(pureDeleted) > 0 {
+			fmt.Printf("\nFound %d deleted file(s):\n", len(pureDeleted))
+			for _, f := range pureDeleted {
+				fmt.Printf("  - %s\n", f)
+			}
+		} else {
+			fmt.Println("No files were deleted between the specified commits.")
+		}
+
+		// 6. Message for renamed files
+		if len(renamedMap) > 0 {
+			fmt.Printf("\nFound %d renamed file(s):\n", len(renamedMap))
+			var oldPaths []string
+			for oldPath := range renamedMap {
+				oldPaths = append(oldPaths, oldPath)
+			}
+			sort.Strings(oldPaths)
+			for _, oldPath := range oldPaths {
+				fmt.Printf("  - %s -> %s\n", oldPath, renamedMap[oldPath])
+			}
+		} else {
+			fmt.Println("No files were renamed between the specified commits.")
+		}
+
+		// 7. Save deleted list file if there are any deleted or renamed-away files
 		if len(deletedFiles) > 0 {
 			outDeletedPath := deletedFileFlag
 			if outDeletedPath == "" {
@@ -104,21 +144,7 @@ Arguments:
 			if err := os.WriteFile(outDeletedPath, []byte(content), 0644); err != nil {
 				return fmt.Errorf("failed to write deleted files list: %w", err)
 			}
-
-			// Map renamed files to provide clear terminal feedback
-			renamedMap, _ := getRenamedFiles(commit1, commit2)
-
-			fmt.Printf("\nFound %d deleted / removed file(s):\n", len(deletedFiles))
-			for _, f := range deletedFiles {
-				if newPath, ok := renamedMap[f]; ok {
-					fmt.Printf("  - %s (renamed -> %s)\n", f, newPath)
-				} else {
-					fmt.Printf("  - %s\n", f)
-				}
-			}
-			fmt.Printf("List of deleted files saved to %q.\n", outDeletedPath)
-		} else {
-			fmt.Println("No files were deleted between the specified commits.")
+			fmt.Printf("\nList of deleted and renamed-away files saved to %q.\n", outDeletedPath)
 		}
 
 		return nil
