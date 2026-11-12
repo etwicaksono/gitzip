@@ -105,9 +105,16 @@ Arguments:
 				return fmt.Errorf("failed to write deleted files list: %w", err)
 			}
 
-			fmt.Printf("\nFound %d deleted file(s):\n", len(deletedFiles))
+			// Map renamed files to provide clear terminal feedback
+			renamedMap, _ := getRenamedFiles(commit1, commit2)
+
+			fmt.Printf("\nFound %d deleted / removed file(s):\n", len(deletedFiles))
 			for _, f := range deletedFiles {
-				fmt.Printf("  - %s\n", f)
+				if newPath, ok := renamedMap[f]; ok {
+					fmt.Printf("  - %s (renamed -> %s)\n", f, newPath)
+				} else {
+					fmt.Printf("  - %s\n", f)
+				}
 			}
 			fmt.Printf("List of deleted files saved to %q.\n", outDeletedPath)
 		} else {
@@ -127,13 +134,48 @@ func getChangedFiles(commit1, commit2 string) ([]string, error) {
 	return runGitDiff(commit1, commit2, "--diff-filter=d")
 }
 
-// getDeletedFiles returns only files that were deleted
+// getDeletedFiles returns files that were deleted or renamed away
 func getDeletedFiles(commit1, commit2 string) ([]string, error) {
 	return runGitDiff(commit1, commit2, "--diff-filter=D")
 }
 
+// getRenamedFiles returns a map of oldPath -> newPath
+func getRenamedFiles(commit1, commit2 string) (map[string]string, error) {
+	cmd := exec.Command("git", "diff", "--name-status", "--diff-filter=R", commit1, commit2)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
+	if err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg != "" {
+			return nil, fmt.Errorf("%s (%w)", errMsg, err)
+		}
+		return nil, err
+	}
+
+	renames := make(map[string]string)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) >= 3 {
+			oldPath := strings.TrimSpace(parts[1])
+			newPath := strings.TrimSpace(parts[2])
+			renames[oldPath] = newPath
+		}
+	}
+	return renames, nil
+}
+
 func runGitDiff(commit1, commit2, filter string) ([]string, error) {
-	cmd := exec.Command("git", "diff", "--name-only", filter, commit1, commit2)
+	// Using --no-renames ensures that:
+	// - old names of renamed files are flagged as 'D' (included in deleted files list)
+	// - new names of renamed files are flagged as 'A' (included in ZIP)
+	cmd := exec.Command("git", "diff", "--name-only", "--no-renames", filter, commit1, commit2)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
